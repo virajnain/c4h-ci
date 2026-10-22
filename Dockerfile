@@ -1,38 +1,7 @@
-FROM almalinux:9
+ARG BASE_IMAGE=ghcr.io/virajnain/c4h-base:latest
+FROM ${BASE_IMAGE}
 
 SHELL ["/bin/bash", "-c"]
-
-RUN dnf -y update && \
-    dnf install -y \
-    git \
-    gcc \
-    gcc-c++ \
-    gcc-gfortran \
-    make \
-    cmake \
-    python3 \
-    python3-pip \
-    wget \
-    tar \
-    xz \
-    bzip2 \
-    which \
-    file \
-    patch \
-    hostname \
-    perl \
-    procps-ng \
-    openssl-devel \
-    libuuid-devel \
-    libX11-devel \
-    libXpm-devel \
-    libXft-devel \
-    libXext-devel \
-    mesa-libGL-devel \
-    glibc-langpack-en && \
-    dnf clean all
-
-LABEL org.opencontainers.image.source="https://github.com/virajnain/c4h-dist"
 
 WORKDIR /opt
 RUN git clone --branch v1.0.0 https://github.com/spack/spack.git
@@ -68,5 +37,8 @@ RUN source /opt/spack/share/spack/setup-env.sh && \
     spack concretize -f && \
     spack install --fail-fast --show-log-on-error -j${SPACK_JOBS} && \
     spack clean --downloads
+
+COPY scripts/c4h-develop /usr/local/bin/c4h-develop
+RUN chmod +x /usr/local/bin/c4h-develop
 
 CMD ["bash"]

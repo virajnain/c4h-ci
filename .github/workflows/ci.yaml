@@ -19,10 +19,12 @@ jobs:
 #        with:
 #          python-version: "3.12"
 #      - uses: pre-commit/action@v3.0.1
+
   changes:
     name: Do the image inputs need a rebuild?
     runs-on: ubuntu-latest
     outputs:
+      base: ${{ steps.check.outputs.base }}
       image: ${{ steps.check.outputs.image }}
     steps:
       - uses: actions/checkout@v4
@@ -30,19 +32,47 @@ jobs:
           fetch-depth: 0
       - id: check
         run: |
-          build=false
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            build=true
-          elif [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref }}" = "refs/heads/main" ]; then
-            git diff --name-only "${{ github.event.before }}" "${{ github.sha }}" 2>/dev/null \
-              | grep -qE '^(Dockerfile|spack\.yaml)$' && build=true
+          before="${{ github.event.before }}"
+          if [ -z "$before" ] || [ "$before" = "0000000000000000000000000000000000000000" ]; then
+            files=$(git ls-files)
+          else
+            files=$(git diff --name-only "$before" "$GITHUB_SHA")
           fi
-          echo "image=$build" >> "$GITHUB_OUTPUT"
-
+          echo "event=${{ github.event_name }} ref=${{ github.ref }}"; echo "$files"
+          base=false; image=false
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            base=true; image=true
+          elif [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            echo "$files" | grep -qxE 'Dockerfile\.base' && { base=true; image=true; }
+            echo "$files" | grep -qxE 'Dockerfile|spack\.yaml|scripts/c4h-develop|\.github/workflows/ci\.yaml' && image=true
+          fi
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+  base:
+    name: Build and push base image
+    needs: changes
+    if: needs.changes.outputs.base == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.base
+          push: true
+          tags: ghcr.io/virajnain/c4h-base:latest
   image:
     name: Build and push container
-    needs: changes
-    if: needs.changes.outputs.image == 'true'
+    needs: [changes, base]
+    if: ${{ !cancelled() && needs.changes.outputs.image == 'true' && (needs.base.result == 'success' || needs.base.result == 'skipped') }}
     runs-on: ubuntu-latest
     timeout-minutes: 355
     permissions:
@@ -68,6 +98,7 @@ jobs:
           build-args: |
             C4H_SPACK_PACKAGES_REF=${{ inputs.c4h_spack_packages_ref || 'main' }}
             SPACK_JOBS=4
+            BASE_IMAGE=ghcr.io/virajnain/c4h-base:latest
           tags: |
             ghcr.io/virajnain/code4hep-ci:latest
             ghcr.io/virajnain/code4hep-ci:${{ steps.meta.outputs.tag }}
@@ -82,8 +113,8 @@ jobs:
 
   build:
     name: Build and Test Code4hep
-    needs: [changes, image]
-    if: ${{ !cancelled() && needs.changes.result == 'success' && (needs.image.result == 'success' || needs.image.result == 'skipped') }}
+    needs: [changes, base, image]
+    if: ${{ !cancelled() && needs.changes.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.base.result) && contains(fromJSON('["success","skipped"]'), needs.image.result) }}
     runs-on: ubuntu-latest
     container:
       # the image built in this run if there was one, otherwise the latest published
