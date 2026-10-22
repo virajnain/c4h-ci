@@ -39,31 +39,6 @@ jobs:
           fi
           echo "image=$build" >> "$GITHUB_OUTPUT"
 
-  build:
-    name: Build and Test Code4hep
-    needs: [changes, image]
-    if: ${{ !cancelled() && needs.changes.result == 'success' && (needs.image.result == 'success' || needs.image.result == 'skipped') }}
-    runs-on: ubuntu-latest
-    container:
-      # the image built in this run if there was one, otherwise the latest published
-      image: ghcr.io/virajnain/code4hep-ci:${{ needs.image.outputs.tag || 'latest' }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build Code4hep with Spack
-        run: |
-          source /opt/spack/share/spack/setup-env.sh
-          spack env activate code4hep_env
-          spack uninstall -y code4hep || true
-          spack concretize -f
-          spack install --fail-fast --show-log-on-error -j$(nproc) --keep-stage
-#      - name: Run tests
-#        run: |
-#          source /opt/spack/share/spack/setup-env.sh
-#          spack env activate code4hep_env
-#          source $(spack location -i stitched)/bin/stitched_env.sh
-#          export PYTHONPATH=$(spack location -i code4hep)/python:$PYTHONPATH
-#          ctest --output-on-failure --test-dir "$(spack location -b code4hep)"
-
   image:
     name: Build and push container
     needs: changes
@@ -104,6 +79,36 @@ jobs:
               spack mirror add --unsigned --oci-username "$GHCR_USER" \
                 --oci-password-variable GHCR_TOKEN c4h-push oci://ghcr.io/virajnain/c4h-buildcache
               spack buildcache push --unsigned --update-index c4h-push $(spack find --format "/{hash}")'
+
+  build:
+    name: Build and Test Code4hep
+    needs: [changes, image]
+    if: ${{ !cancelled() && needs.changes.result == 'success' && (needs.image.result == 'success' || needs.image.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    container:
+      # the image built in this run if there was one, otherwise the latest published
+      image: ghcr.io/virajnain/code4hep-ci:${{ needs.image.outputs.tag || 'latest' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Code4hep with Spack
+        run: |
+          source /opt/spack/share/spack/setup-env.sh
+          spack env activate code4hep_env
+          spack uninstall -y code4hep || true
+          spack concretize -f
+          spack install --fail-fast --show-log-on-error -j$(nproc) --keep-stage --add code4hep
+      - name: Check that Code4hep was installed
+        run: |
+          source /opt/spack/share/spack/setup-env.sh
+          spack env activate code4hep_env
+          spack find -v code4hep
+#      - name: Run tests
+#        run: |
+#          source /opt/spack/share/spack/setup-env.sh
+#          spack env activate code4hep_env
+#          source $(spack location -i stitched)/bin/stitched_env.sh
+#          export PYTHONPATH=$(spack location -i code4hep)/python:$PYTHONPATH
+#          ctest --output-on-failure --test-dir "$(spack location -b code4hep)"
 
 #  static-analysis:
 #    name: Static Analysis
