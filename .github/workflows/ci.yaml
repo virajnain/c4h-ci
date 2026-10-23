@@ -94,14 +94,13 @@ jobs:
       - uses: docker/build-push-action@v6
         with:
           context: .
-          push: true
+          push: false
+          load: true
           build-args: |
             C4H_SPACK_PACKAGES_REF=${{ inputs.c4h_spack_packages_ref || 'main' }}
             SPACK_JOBS=4
             BASE_IMAGE=ghcr.io/virajnain/c4h-base:latest
-          tags: |
-            ghcr.io/virajnain/code4hep-ci:latest
-            ghcr.io/virajnain/code4hep-ci:${{ steps.meta.outputs.tag }}
+          tags: ghcr.io/virajnain/code4hep-ci:${{ steps.meta.outputs.tag }}
       - name: Add newly built packages to the build cache
         run: |
           docker run --rm -e GHCR_USER=${{ github.actor }} -e GHCR_TOKEN=${{ secrets.GITHUB_TOKEN }} \
@@ -110,6 +109,11 @@ jobs:
               spack mirror add --unsigned --oci-username "$GHCR_USER" \
                 --oci-password-variable GHCR_TOKEN c4h-push oci://ghcr.io/virajnain/c4h-buildcache
               spack buildcache push --unsigned --update-index c4h-push $(spack find --format "/{hash}")'
+      - name: Push the image
+        run: |
+          docker tag ghcr.io/virajnain/code4hep-ci:${{ steps.meta.outputs.tag }} ghcr.io/virajnain/code4hep-ci:latest
+          docker push ghcr.io/virajnain/code4hep-ci:${{ steps.meta.outputs.tag }}
+          docker push ghcr.io/virajnain/code4hep-ci:latest
 
   build:
     name: Build and Test Code4hep
